@@ -238,6 +238,7 @@ For details of each metric type, see [Prometheus documentation](http://prometheu
   type counter
   desc The total number of foo in message.
   key foo
+  label_key bar
   <labels>
     tag ${tag}
     host ${hostname}
@@ -250,9 +251,20 @@ For details of each metric type, see [Prometheus documentation](http://prometheu
 - `type`: metric type (required)
 - `desc`: description of this metric (required)
 - `key`: key name of record for instrumentation (**optional**)
+- `label_key`: key name of record with label values (optional)
 - `<labels>`: additional labels for this metric (optional). See [Labels](#labels)
 
 If key is empty, the metric values is treated as 1, so the counter increments by 1 on each record regardless of contents of the record.
+
+If label_key is specified, a label with that name will be added with the value from the record. If the value is an array,
+a counter for each value is incremented. E.g. if you have `label_key exeception` and a record with `record['exception'] = ['MQException', 'InvalidDestinationException']`, you will get these metrics:
+
+```
+metric_name{exception="MQException"} 1.0
+metric_name{exception="InvalidDestinationException"} 1.0
+```
+
+Other labels will be added as specified.
 
 ### gauge type
 

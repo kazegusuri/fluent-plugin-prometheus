@@ -147,6 +147,7 @@ module Fluent
       class Counter < Metric
         def initialize(element, registry, labels)
           super
+          @label_key = element['label_key']
           begin
             @counter = registry.counter(element['name'].to_sym, element['desc'])
           rescue ::Prometheus::Client::Registry::AlreadyRegisteredError
@@ -161,7 +162,14 @@ module Fluent
           # ignore if record value is nil
           return if value.nil?
 
-          @counter.increment(labels(record, expander, placeholders), value)
+          if @label_key
+            # add label from record
+            Array(record[@label_key]).each do |label_value|
+              @counter.increment(labels(record, expander, placeholders).merge(@label_key.to_sym => label_value), value)
+            end
+          else
+            @counter.increment(labels(record, expander, placeholders), value)
+          end
         end
       end
 
