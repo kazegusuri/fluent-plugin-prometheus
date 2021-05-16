@@ -56,6 +56,27 @@ module Fluent
         base_labels
       end
 
+      def self.parse_initlabels_elements(conf)
+        base_initlabels = []
+
+        conf.elements.select { |e| e.name == 'initlabels' }.each { |block|
+          initlabels = {}
+          block.each do |key, value|
+            block.has_key?(key)
+
+            # A RecordAccessor has no meaning for initializing a metric's labels
+            if value.start_with?('$.') || value.start_with?('$[')
+              raise ConfigError, "RecordAccessor cannot be used in an initlabel"
+            else 
+              initlabels[key.to_sym] = value
+            end
+          end
+          base_initlabels << initlabels
+        }
+
+        base_initlabels
+      end
+
       def self.parse_metrics_elements(conf, registry, labels = {})
         metrics = []
         conf.elements.select { |element|
@@ -165,6 +186,29 @@ module Fluent
 
           @base_labels = Fluent::Plugin::Prometheus.parse_labels_elements(element)
           @base_labels = labels.merge(@base_labels)
+
+          @base_initlabels = Fluent::Plugin::Prometheus.parse_initlabels_elements(element)
+        end
+
+        def self.init_label_set(metric, base_initlabels, base_labels)
+           base_initlabels.each { |initlabel|
+             if initlabel.keys.sort != base_labels.keys.sort
+               raise ConfigError, "initlabels for metric #{metric.name} must have the same signature than labels " \
+                                  "(initlabels given: #{initlabel.keys} vs." \
+                                  " expected from labels: #{base_labels.keys})"
+             end
+             
+             base_labels.each do |k, v|
+               if v.is_a?(String)
+                 if initlabel[k] != v
+                   raise ConfigError, "initlabel '#{k}' for metric '#{metric.name}' cannot have value '#{initlabel[k]}' " \
+                                      "different from provided label string value '#{v}'. " \
+                                      "Initialized metric would never be used."
+                 end
+               end
+             end
+             metric.init_label_set(initlabel)
+            }
         end
 
         def labels(record, expander)
@@ -206,6 +250,8 @@ module Fluent
           rescue ::Prometheus::Client::Registry::AlreadyRegisteredError
             @gauge = Fluent::Plugin::Prometheus::Metric.get(registry, element['name'].to_sym, :gauge, element['desc'])
           end
+
+          Fluent::Plugin::Prometheus::Metric.init_label_set(@gauge, @base_initlabels, @base_labels)
         end
 
         def instrument(record, expander)
@@ -228,6 +274,8 @@ module Fluent
           rescue ::Prometheus::Client::Registry::AlreadyRegisteredError
             @counter = Fluent::Plugin::Prometheus::Metric.get(registry, element['name'].to_sym, :counter, element['desc'])
           end
+
+          Fluent::Plugin::Prometheus::Metric.init_label_set(@counter, @base_initlabels, @base_labels)
         end
 
         def instrument(record, expander)
@@ -259,6 +307,8 @@ module Fluent
           rescue ::Prometheus::Client::Registry::AlreadyRegisteredError
             @summary = Fluent::Plugin::Prometheus::Metric.get(registry, element['name'].to_sym, :summary, element['desc'])
           end
+
+          Fluent::Plugin::Prometheus::Metric.init_label_set(@summary, @base_initlabels, @base_labels)
         end
 
         def instrument(record, expander)
@@ -292,6 +342,8 @@ module Fluent
           rescue ::Prometheus::Client::Registry::AlreadyRegisteredError
             @histogram = Fluent::Plugin::Prometheus::Metric.get(registry, element['name'].to_sym, :histogram, element['desc'])
           end
+
+          Fluent::Plugin::Prometheus::Metric.init_label_set(@histogram, @base_initlabels, @base_labels)
         end
 
         def instrument(record, expander)
